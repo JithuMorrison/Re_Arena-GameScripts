@@ -8,6 +8,10 @@ public class ScoreManager : MonoBehaviour
 {
     public static ScoreManager Instance { get; private set; }
 
+    [Header("Audio")]
+    public AudioClip milestoneSound;   // 🎵 assign in Inspector
+    private AudioSource audioSource;
+
     public TMP_Text scoreText;   // ✅ assign a TMP_Text from Canvas
     private int score = 0;
     private int prevpop = 0;
@@ -18,6 +22,8 @@ public class ScoreManager : MonoBehaviour
             Instance = this;
         else
             Destroy(gameObject);
+
+        audioSource = gameObject.AddComponent<AudioSource>();
     }
 
     void Start()
@@ -29,6 +35,12 @@ public class ScoreManager : MonoBehaviour
     {
         score += amount;
         UpdateUI();
+
+        if (score == 15 && milestoneSound != null)
+        {
+            audioSource.Stop();  // ⛔ stop any playing sound
+            audioSource.PlayOneShot(milestoneSound); // ▶️ play milestone sound once
+        }
     }
 
     private void UpdateUI()
