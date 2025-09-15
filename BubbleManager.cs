@@ -10,6 +10,7 @@ public class BubbleManager : MonoBehaviour
 
     [Header("Audio")]
     public AudioClip popSound;   // 🎵 assign in Inspector
+    public AudioClip failSound;
     private AudioSource audioSource;
 
     [Header("PPO Parameters")]
@@ -37,12 +38,17 @@ public class BubbleManager : MonoBehaviour
         audioSource.loop = false;
     }
 
-    public void PlayPopSound()
+    public void PlayPopSound(int bubbleval)
     {
         if (popSound != null && audioSource != null)
         {
             audioSource.Stop();          // ⛔ stop previous
-            audioSource.clip = popSound; // 🎵 assign new
+            if(bubbleval == -1){
+                audioSource.clip = failSound;
+            }
+            else{
+                audioSource.clip = popSound; // 🎵 assign new
+            }
             audioSource.Play();          // ▶️ play new
         }
     }
