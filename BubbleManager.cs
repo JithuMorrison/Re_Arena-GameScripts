@@ -8,6 +8,10 @@ public class BubbleManager : MonoBehaviour
     public GameObject bubblePrefab;   // Assign a prefab with Bubble script + Collider + Rigidbody (isKinematic = true)
     public Transform player;          // Reference to player transform
 
+    [Header("Audio")]
+    public AudioClip popSound;   // 🎵 assign in Inspector
+    private AudioSource audioSource;
+
     [Header("PPO Parameters")]
     public float spawnAreaSize = 3f;
     public float bubbleSpeed = 1f;
@@ -27,6 +31,19 @@ public class BubbleManager : MonoBehaviour
         {
             GameObject p = GameObject.FindGameObjectWithTag("Player");
             if (p != null) player = p.transform;
+        }
+
+        audioSource = gameObject.AddComponent<AudioSource>();
+        audioSource.loop = false;
+    }
+
+    public void PlayPopSound()
+    {
+        if (popSound != null && audioSource != null)
+        {
+            audioSource.Stop();          // ⛔ stop previous
+            audioSource.clip = popSound; // 🎵 assign new
+            audioSource.Play();          // ▶️ play new
         }
     }
 
