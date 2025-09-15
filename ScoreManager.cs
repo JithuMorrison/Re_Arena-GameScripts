@@ -15,6 +15,7 @@ public class ScoreManager : MonoBehaviour
     public TMP_Text scoreText;   // ✅ assign a TMP_Text from Canvas
     private int score = 0;
     private int prevpop = 0;
+    private bool milestonePlayed = false;
 
     void Awake()
     {
@@ -36,10 +37,11 @@ public class ScoreManager : MonoBehaviour
         score += amount;
         UpdateUI();
 
-        if (score == 15 && milestoneSound != null)
+        if (!milestonePlayed && score >= 15 && milestoneSound != null)
         {
-            audioSource.Stop();  // ⛔ stop any playing sound
-            audioSource.PlayOneShot(milestoneSound); // ▶️ play milestone sound once
+            audioSource.Stop();
+            audioSource.PlayOneShot(milestoneSound);
+            milestonePlayed = true; // ✅ ensures it plays only once
         }
     }
 
