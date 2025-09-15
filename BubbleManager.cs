@@ -55,11 +55,23 @@ public class BubbleManager : MonoBehaviour
         GameObject bubble = Instantiate(bubblePrefab, spawnPos, Quaternion.identity);
         bubble.transform.localScale = Vector3.one * bubbleSize;
 
+        int bubbleVal = 1;
+
+        Renderer renderer = bubble.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            // Pick from a set of defined colors
+            Color[] colors = { Color.black, Color.white, Color.cyan, Color.magenta};
+            int colorIndex = Random.Range(0, colors.Length);
+            renderer.material.color = colors[colorIndex];
+            bubbleVal = colorIndex - 1;
+        }
+
         // ✅ Use GetComponent (don’t add a second script)
         Bubble bubbleScript = bubble.GetComponent<Bubble>();
         if (bubbleScript != null)
         {
-            bubbleScript.Init(this, player, bubbleSpeed, bubbleLifetime, guidanceOn);
+            bubbleScript.Init(this, player, bubbleSpeed, bubbleLifetime, guidanceOn, bubbleVal);
         }
 
         activeBubbles.Add(bubble);
