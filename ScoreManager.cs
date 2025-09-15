@@ -10,6 +10,7 @@ public class ScoreManager : MonoBehaviour
 
     public TMP_Text scoreText;   // ✅ assign a TMP_Text from Canvas
     private int score = 0;
+    private int prevpop = 0;
 
     void Awake()
     {
@@ -41,5 +42,15 @@ public class ScoreManager : MonoBehaviour
     public int GetScore()
     {
         return score;
+    }
+
+    public int GetPrevPop()
+    {
+        return prevpop;
+    }
+
+    public void SetPrevPop(int val)
+    {
+        prevpop = val;
     }
 }
