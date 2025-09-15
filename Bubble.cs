@@ -58,6 +58,7 @@ public class Bubble : MonoBehaviour
         if (other.CompareTag("Player") && manager != null)
         {
             manager.OnBubblePopped(gameObject);
+            manager.PlayPopSound();
             Debug.Log("Bubble popped by player!");
             int extra = 0;
             if (ScoreManager.Instance.GetPrevPop() == bubbleValue){
