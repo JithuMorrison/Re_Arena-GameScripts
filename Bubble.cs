@@ -9,17 +9,19 @@ public class Bubble : MonoBehaviour
     private float speed;
     private float lifetime;
     private bool guidanceOn;
+    private int bubbleValue; // Value of the bubble
 
     private float timer = 0f;
     private Vector3 randomDir;   // random movement direction
 
-    public void Init(BubbleManager manager, Transform player, float speed, float lifetime, bool guidanceOn)
+    public void Init(BubbleManager manager, Transform player, float speed, float lifetime, bool guidanceOn, int value)
     {
         this.manager = manager;
         this.player = player;
         this.speed = speed;
         this.lifetime = lifetime;
         this.guidanceOn = guidanceOn;
+        this.bubbleValue = value; // Set the bubble value
 
         // ✅ Pick a random direction (slightly biased upwards so it feels floaty)
         randomDir = new Vector3(
@@ -57,7 +59,12 @@ public class Bubble : MonoBehaviour
         {
             manager.OnBubblePopped(gameObject);
             Debug.Log("Bubble popped by player!");
-            ScoreManager.Instance.AddScore(1);
+            int extra = 0;
+            if (ScoreManager.Instance.GetPrevPop() == bubbleValue){
+                extra = 1;
+            }
+            ScoreManager.Instance.AddScore(bubbleValue+extra); // Add score based on bubble value
+            ScoreManager.Instance.SetPrevPop(bubbleValue); // Update previous popped bubble value
         }
     }
 }
