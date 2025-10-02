@@ -52,6 +52,8 @@ public class PPOStateTracker : MonoBehaviour
 
             state = CollectState();
 
+            Debug.Log("States: "+ string.Join(",",state));
+
             // ------------------------
             // 2. Send State to Flask
             // ------------------------
@@ -103,6 +105,8 @@ public class PPOStateTracker : MonoBehaviour
 
                     // (3) Compute reward (this can be your own logic)
                     float reward = CalculateReward(nextState,action);
+
+                    Debug.Log("Rewards: "+ string.Join(",",reward));
 
                     // (4) Send experience to Flask PPO trainer
                     if (rewardCalculator != null)
