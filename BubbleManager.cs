@@ -5,11 +5,16 @@ using UnityEngine;
 public class BubbleManager : MonoBehaviour
 {
     [Header("References")]
-    public GameObject bubblePrefab;   // Assign a prefab with Bubble script + Collider + Rigidbody (isKinematic = true)
-    public Transform player;          // Reference to player transform
+    public GameObject bubblePrefab;
+    public Transform player;
+    
+    [Header("Spawn Locations")]
+    public Transform spawnLocation1;  // Assign 3 different spawn points in Inspector
+    public Transform spawnLocation2;
+    public Transform spawnLocation3;
 
     [Header("Audio")]
-    public AudioClip popSound;   // 🎵 assign in Inspector
+    public AudioClip popSound;
     public AudioClip failSound;
     private AudioSource audioSource;
 
@@ -22,12 +27,17 @@ public class BubbleManager : MonoBehaviour
     public float bubbleSize = 0.5f;
     public bool guidanceOn = false;
 
+    [Header("Color Probabilities")]
+    public float positiveProb = 0.5f;  // Probability for positive colors (cyan, magenta)
+    public float negativeProb = 0.5f;  // Probability for negative colors (black, white)
+
     private List<GameObject> activeBubbles = new List<GameObject>();
+    private float spawn_rate = 0.5f;
     public int totalbubbles = 0;
+    private PPOStateTracker stateTracker;
 
     void Start()
     {
-        // ✅ Auto-find player if not assigned in Inspector
         if (player == null)
         {
             GameObject p = GameObject.FindGameObjectWithTag("Player");
@@ -36,36 +46,79 @@ public class BubbleManager : MonoBehaviour
 
         audioSource = gameObject.AddComponent<AudioSource>();
         audioSource.loop = false;
+
+        stateTracker = FindObjectOfType<PPOStateTracker>();
+
+        // Create default spawn locations if not assigned
+        if (spawnLocation1 == null || spawnLocation2 == null || spawnLocation3 == null)
+        {
+            CreateDefaultSpawnLocations();
+        }
+    }
+
+    private void CreateDefaultSpawnLocations()
+    {
+        GameObject spawnParent = new GameObject("SpawnLocations");
+        spawnParent.transform.position = player != null ? player.position : Vector3.zero;
+
+        if (spawnLocation1 == null)
+        {
+            GameObject loc1 = new GameObject("SpawnLocation1");
+            loc1.transform.parent = spawnParent.transform;
+            loc1.transform.localPosition = new Vector3(-2f, 0f, 0f);
+            spawnLocation1 = loc1.transform;
+        }
+
+        if (spawnLocation2 == null)
+        {
+            GameObject loc2 = new GameObject("SpawnLocation2");
+            loc2.transform.parent = spawnParent.transform;
+            loc2.transform.localPosition = new Vector3(0f, 0f, 0f);
+            spawnLocation2 = loc2.transform;
+        }
+
+        if (spawnLocation3 == null)
+        {
+            GameObject loc3 = new GameObject("SpawnLocation3");
+            loc3.transform.parent = spawnParent.transform;
+            loc3.transform.localPosition = new Vector3(2f, 0f, 0f);
+            spawnLocation3 = loc3.transform;
+        }
     }
 
     public void PlayPopSound(int bubbleval)
     {
-        if (popSound != null && audioSource != null)
+        if (audioSource != null)
         {
-            audioSource.Stop();          // ⛔ stop previous
-            if(bubbleval == -1){
+            audioSource.Stop();
+            if (bubbleval == -1)
+            {
                 audioSource.clip = failSound;
             }
-            else{
-                audioSource.clip = popSound; // 🎵 assign new
+            else
+            {
+                audioSource.clip = popSound;
             }
-            audioSource.Play();          // ▶️ play new
+            audioSource.Play();
         }
     }
 
     void Update()
     {
-        // Maintain number of bubbles
-        if (activeBubbles.Count < numBubbles)
+        if (activeBubbles.Count < numBubbles || spawn_rate > 0.5f)
         {
             SpawnBubble();
             totalbubbles++;
+            spawn_rate = Mathf.Clamp(spawn_rate-0.1f, 0f, 1f);
         }
     }
 
     void SpawnBubble()
     {
-        if (player == null) return; // ✅ prevents null error
+        if (player == null) return;
+
+        // Randomly select spawn location using weighted random choice
+        Transform selectedSpawn = GetRandomSpawnLocation();
 
         Vector3 randomOffset = new Vector3(
             Random.Range(-spawnAreaSize, spawnAreaSize),
@@ -73,24 +126,21 @@ public class BubbleManager : MonoBehaviour
             Random.Range(-spawnAreaSize, spawnAreaSize)
         );
 
-        Vector3 spawnPos = player.position + randomOffset;
+        Vector3 spawnPos = selectedSpawn.position + randomOffset;
 
         GameObject bubble = Instantiate(bubblePrefab, spawnPos, Quaternion.identity);
         bubble.transform.localScale = Vector3.one * bubbleSize;
 
-        int bubbleVal = 1;
+        // Use weighted probability for color selection
+        int bubbleVal = GetWeightedRandomColor();
 
         Renderer renderer = bubble.GetComponent<Renderer>();
         if (renderer != null)
         {
-            // Pick from a set of defined colors
-            Color[] colors = { Color.black, Color.white, Color.cyan, Color.magenta};
-            int colorIndex = Random.Range(0, colors.Length);
-            renderer.material.color = colors[colorIndex];
-            bubbleVal = colorIndex - 1;
+            Color[] colors = { Color.black, Color.white, Color.cyan, Color.magenta };
+            renderer.material.color = colors[bubbleVal + 1];
         }
 
-        // ✅ Use GetComponent (don’t add a second script)
         Bubble bubbleScript = bubble.GetComponent<Bubble>();
         if (bubbleScript != null)
         {
@@ -100,26 +150,81 @@ public class BubbleManager : MonoBehaviour
         activeBubbles.Add(bubble);
     }
 
+    private Transform GetRandomSpawnLocation()
+    {
+        // Equal probability for each spawn location
+        int randomIndex = Random.Range(0, 3);
+        
+        switch (randomIndex)
+        {
+            case 0: return spawnLocation1;
+            case 1: return spawnLocation2;
+            case 2: return spawnLocation3;
+            default: return spawnLocation2;
+        }
+    }
+
+    private int GetWeightedRandomColor()
+    {
+        // Normalize probabilities
+        float totalProb = positiveProb + negativeProb;
+        float normalizedPositive = positiveProb / totalProb;
+        float normalizedNegative = negativeProb / totalProb;
+
+        float randomValue = Random.value;
+
+        if (randomValue < normalizedPositive)
+        {
+            // Positive colors: cyan (1) or magenta (2)
+            return Random.Range(1, 3);
+        }
+        else
+        {
+            // Negative colors: black (-1) or white (0)
+            return Random.Range(-1, 1);
+        }
+    }
+
     public void OnBubblePopped(GameObject bubble)
     {
         if (activeBubbles.Contains(bubble))
         {
             activeBubbles.Remove(bubble);
             Destroy(bubble);
+
+            // Notify state tracker
+            if (stateTracker != null)
+            {
+                stateTracker.OnBubblePopped();
+            }
         }
     }
 
-    public void UpdateEnvironment(List<float> action)
+    public void UpdateEnvironment(AdjustmentsData adjustments)
     {
-        // ✅ Update fields, not local variables
-        spawnAreaSize = 0.5f;//action[0];
-        bubbleSpeed = 0.5f;//action[1];
-        bubbleLifetime = action[2];
-        spawnHeight = 0f;//action[3];
-        numBubbles = Mathf.RoundToInt(action[4]);
-        bubbleSize = 0.4f;//action[5];
-        guidanceOn = false;//action[6] > 0.5f;
+        // Update bubble size
+        if (adjustments.bubble_size != 0f)
+        {
+            bubbleSize = Mathf.Clamp(bubbleSize + adjustments.bubble_size, 0.2f, 0.4f);
+        }
 
-        Debug.Log($"Environment updated: Speed={bubbleSpeed}, Size={bubbleSize}, Count={numBubbles}");
+        // Update color probabilities
+        positiveProb = Mathf.Clamp01(positiveProb + adjustments.positive_prob);
+        negativeProb = Mathf.Clamp01(negativeProb + adjustments.negative_prob);
+
+        // Update spawn rate (affects bubble speed)
+        if (adjustments.spawn_rate != 0f)
+        {
+            bubbleSpeed = Mathf.Clamp(bubbleSpeed + adjustments.spawn_rate * 0.1f, 0.3f, 2.0f);
+            spawn_rate = Mathf.Clamp(spawn_rate + adjustments.spawn_rate, 0f, 1f);
+        }
+
+        Debug.Log($"Environment updated: Speed={bubbleSpeed}, Size={bubbleSize}, " +
+                  $"PosProb={positiveProb}, NegProb={negativeProb}");
+    }
+
+    public int GetActiveBubbleCount()
+    {
+        return activeBubbles.Count;
     }
 }
