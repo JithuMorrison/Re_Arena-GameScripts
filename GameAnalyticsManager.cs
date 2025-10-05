@@ -10,6 +10,7 @@ using UnityEngine.SceneManagement;
 public class GameData1
 {
     public int score;
+    public string gameName;
     public float leftHandMaxFromHip;
     public float rightHandMaxFromHip;
     public float leftLegMax;
@@ -99,6 +100,7 @@ public class GameAnalyticsManager : MonoBehaviour
         GameData1 data = new GameData1
         {
             score = currentScore,
+            gameName = SessionManager.Instance.selectedGameName,
             leftHandMaxFromHip = leftHandMaxFromHip,
             rightHandMaxFromHip = rightHandMaxFromHip,
             leftLegMax = leftLegMax,
@@ -137,6 +139,12 @@ public class GameAnalyticsManager : MonoBehaviour
             else
             {
                 Debug.Log($"Game data sent successfully: {request.downloadHandler.text}");
+                NuitrackManager nuitrackMgr = FindObjectOfType<NuitrackManager>();
+                if (nuitrackMgr != null)
+                {
+                    // Stop Nuitrack safely
+                    nuitrackMgr.StopNuitrack();
+                }
                 SceneManager.LoadScene(sceneName);
             }
         }
