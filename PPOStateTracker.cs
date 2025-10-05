@@ -39,8 +39,6 @@ public class PPOStateTracker : MonoBehaviour
     private string flaskUrl = "http://127.0.0.1:5000/ppo_action";
 
     // State tracking variables
-    private float stateCheckTimer = 0f;
-    private float stateCheckInterval = 2f; // Check state every 2 seconds
     private int bubblesPopped2s = 0;
     private int bubblesPopped5s = 0;
     private int bubblesPopped10s = 0;
@@ -209,7 +207,7 @@ public class PPOStateTracker : MonoBehaviour
         // Priority order: Win > Lose > Overwhelmed > Time-based states
 
         // 1. Win state (score >= 20)
-        if (currentScore >= 20)
+        if (currentScore >= SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName).target_score)
         {
             state[0] = 1;
             return state;
