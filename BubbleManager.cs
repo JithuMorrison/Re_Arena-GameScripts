@@ -202,10 +202,30 @@ public class BubbleManager : MonoBehaviour
 
     public void UpdateEnvironment(AdjustmentsData adjustments)
     {
+        GameConfig gameconfig = SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName);
+        float bubbleSpeedMax = 1f;
+        float bubbleLifetimeMax = 10f;
+        float numBubblesMax = 5f;
+        float bubbleSizeMax = 1f;
+
+        if (gameconfig != null)
+        {
+            bubbleSpeedMax   = Mathf.Max(gameconfig.bubbleSpeedMax, 1f);
+            bubbleLifetimeMax = Mathf.Max(gameconfig.bubbleLifetimeMax, 10f); // at least 1 second
+            numBubblesMax     = Mathf.Max(gameconfig.numBubblesMax, 5f);     // at least 1 bubble
+            bubbleSizeMax     = Mathf.Max(gameconfig.bubbleSizeMax, 0.2f);   // at least min size
+        }
+
+        // ✅ Define safe minimums
+        float minBubbleSize    = 0.2f; 
+        float minBubbleSpeed   = 0.3f; 
+        float minBubbleLifetime = 1f;   // don't allow instant vanish
+        int   minNumBubbles    = 1;     // always at least one bubble
+
         // Update bubble size
         if (adjustments.bubble_size != 0f)
         {
-            bubbleSize = Mathf.Clamp(bubbleSize + adjustments.bubble_size, 0.2f, 0.4f);
+            bubbleSize = Mathf.Clamp(bubbleSize + adjustments.bubble_size, minBubbleSize, bubbleSizeMax);
         }
 
         // Update color probabilities
@@ -215,12 +235,17 @@ public class BubbleManager : MonoBehaviour
         // Update spawn rate (affects bubble speed)
         if (adjustments.spawn_rate != 0f)
         {
-            bubbleSpeed = Mathf.Clamp(bubbleSpeed + adjustments.spawn_rate * 0.1f, 0.3f, 2.0f);
+            bubbleSpeed = Mathf.Clamp(bubbleSpeed + adjustments.spawn_rate * 0.1f, minBubbleSpeed, bubbleSpeedMax);
             spawn_rate = Mathf.Clamp(spawn_rate + adjustments.spawn_rate, 0f, 1f);
         }
 
+        // ✅ Clamp other variables so they never hit 0
+        bubbleLifetime = Mathf.Clamp(bubbleLifetime, minBubbleLifetime, bubbleLifetimeMax);
+        numBubbles     = Mathf.Clamp(numBubbles, minNumBubbles, (int)numBubblesMax);
+
         Debug.Log($"Environment updated: Speed={bubbleSpeed}, Size={bubbleSize}, " +
-                  $"PosProb={positiveProb}, NegProb={negativeProb}");
+                $"Lifetime={bubbleLifetime}, NumBubbles={numBubbles}, " +
+                $"PosProb={positiveProb}, NegProb={negativeProb}");
     }
 
     public int GetActiveBubbleCount()
