@@ -37,7 +37,7 @@ public class ScoreManager : MonoBehaviour
         score += amount;
         UpdateUI();
 
-        if (!milestonePlayed && score >= 15 && milestoneSound != null)
+        if (!milestonePlayed && score >= SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName).target_score && milestoneSound != null)
         {
             audioSource.Stop();
             audioSource.PlayOneShot(milestoneSound);
