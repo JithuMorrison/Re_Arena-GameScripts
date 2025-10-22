@@ -10,12 +10,15 @@ public class ScoreManager : MonoBehaviour
 
     [Header("Audio")]
     public AudioClip milestoneSound;   // 🎵 assign in Inspector
+    public AudioClip targetSound;
+    public AudioClip loseSound;
     private AudioSource audioSource;
 
     public TMP_Text scoreText;   // ✅ assign a TMP_Text from Canvas
     private int score = 0;
     private int prevpop = 0;
     private bool milestonePlayed = false;
+    private bool targetReached = false;
 
     void Awake()
     {
@@ -37,7 +40,14 @@ public class ScoreManager : MonoBehaviour
         score += amount;
         UpdateUI();
 
-        if (!milestonePlayed && score >= SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName).target_score && milestoneSound != null)
+        if (!targetReached && score >= SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName).target_score && targetSound != null)
+        {
+            audioSource.Stop();
+            audioSource.PlayOneShot(targetSound);
+            targetReached = true; // ✅ ensures it plays only once
+        }
+
+        if (!milestonePlayed && score >= 10 && milestoneSound != null)
         {
             audioSource.Stop();
             audioSource.PlayOneShot(milestoneSound);
@@ -67,4 +77,14 @@ public class ScoreManager : MonoBehaviour
     {
         prevpop = val;
     }
+
+    public void YouLose()
+    {
+        if(loseSound!=null)
+        {
+            audioSource.Stop();
+            audioSource.PlayOneShot(loseSound);
+        }
+    }
+
 }
