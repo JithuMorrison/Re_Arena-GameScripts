@@ -36,6 +36,7 @@ public class PPOStateTracker : MonoBehaviour
     public GameObject leftHand, rightHand, leftShoulder, rightShoulder, hip, head;
     public BubbleManager bubbleManager;
     public RewardCalculator rewardCalculator;
+    public ResultDisplay resultDisplay;
     private string flaskUrl = "http://127.0.0.1:5000/ppo_action";
 
     // State tracking variables
@@ -210,18 +211,25 @@ public class PPOStateTracker : MonoBehaviour
         if (currentScore >= SessionManager.Instance.GetGameConfig(SessionManager.Instance.selectedGameName).target_score)
         {
             state[0] = 1;
+            if(resultDisplay){
+                resultDisplay.ShowResult("win");
+            }
             return state;
         }
 
         // 2. Lose state (time > 2 mins OR negative score)
-        if (elapsedTime >= 120f || currentScore < 0)
+        else if (elapsedTime >= 120f || currentScore < 0)
         {
             state[1] = 1;
+            ScoreManager.Instance.YouLose();
+            if(resultDisplay){
+                resultDisplay.ShowResult("lose");
+            }
             return state;
         }
 
         // 3. Overwhelmed state (>10 bubbles on screen)
-        if (activeBubbles > 10)
+        else if (activeBubbles > 10)
         {
             state[2] = 1;
             return state;
@@ -230,36 +238,38 @@ public class PPOStateTracker : MonoBehaviour
         // 4. Time-based popping states (check in order: 2s, 5s, 10s)
         
         // Fast popping (10+ bubbles in 2s)
-        if (bubblesPopped2s >= 10)
+        else if (bubblesPopped2s >= 10)
         {
             state[3] = 1;
             return state;
         }
 
         // Balanced (5 bubbles in 5s)
-        if (bubblesPopped5s >= 5)
+        else if (bubblesPopped5s >= 5)
         {
             state[4] = 1;
             return state;
         }
 
         // Slow popping (2 bubbles in 5s)
-        if (bubblesPopped5s >= 2)
+        else if (bubblesPopped5s >= 2)
         {
             state[5] = 1;
             return state;
         }
 
         // Stagnant (0 bubbles in 10s)
-        if (bubblesPopped10s == 0 && timer10s >= 10f)
+        else if (bubblesPopped10s == 0 && timer10s >= 10f)
         {
             state[6] = 1;
             return state;
         }
 
         // Default: return slow popping if nothing else matches
-        state[5] = 1;
-        return state;
+        else{
+            state[5] = 1;
+            return state;
+        }
     }
 
     private void UpdateMetrics()
