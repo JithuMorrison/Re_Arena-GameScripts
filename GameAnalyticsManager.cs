@@ -15,6 +15,7 @@ public class GameData1
     public float rightHandMaxFromHip;
     public float leftLegMax;
     public float rightLegMax;
+    public string result;
 }
 
 [System.Serializable]
@@ -104,7 +105,44 @@ public class GameAnalyticsManager : MonoBehaviour
             leftHandMaxFromHip = leftHandMaxFromHip,
             rightHandMaxFromHip = rightHandMaxFromHip,
             leftLegMax = leftLegMax,
-            rightLegMax = rightLegMax
+            rightLegMax = rightLegMax,
+            result = "stopped"
+        };
+
+        GamePayload payload = new GamePayload
+        {
+            gameData = data,
+            status = "active"
+        };
+
+        string json = JsonUtility.ToJson(payload);
+        StartCoroutine(SendGameData(urlWithId, json));
+    }
+
+    public void OnGameEnd(string res)
+    {
+        if (SessionManager.Instance == null || string.IsNullOrEmpty(SessionManager.Instance.sessionId))
+        {
+            Debug.LogError("No session ID found!");
+            return;
+        }
+
+        string sessionId = SessionManager.Instance.sessionId;
+        string urlWithId = apiUrl + "/" + sessionId; // append sessionId to URL
+
+        // Get score from ScoreManager
+        int currentScore = ScoreManager.Instance != null ? ScoreManager.Instance.GetScore() : 0;
+
+        // Create payload
+        GameData1 data = new GameData1
+        {
+            score = currentScore,
+            gameName = SessionManager.Instance.selectedGameName,
+            leftHandMaxFromHip = leftHandMaxFromHip,
+            rightHandMaxFromHip = rightHandMaxFromHip,
+            leftLegMax = leftLegMax,
+            rightLegMax = rightLegMax,
+            result = res
         };
 
         GamePayload payload = new GamePayload
