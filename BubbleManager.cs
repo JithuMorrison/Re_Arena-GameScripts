@@ -217,7 +217,7 @@ public class BubbleManager : MonoBehaviour
         }
 
         // ✅ Define safe minimums
-        float minBubbleSize    = 0.2f; 
+        float minBubbleSize    = 0.4f; 
         float minBubbleSpeed   = 0.3f; 
         float minBubbleLifetime = 1f;   // don't allow instant vanish
         int   minNumBubbles    = 1;     // always at least one bubble
