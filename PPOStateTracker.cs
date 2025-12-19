@@ -31,6 +31,37 @@ public class AdjustmentsData
     public float spawn_rate;
 }
 
+[System.Serializable]
+public class SessionLogWrapper
+{
+    public float time;
+    public List<int> state;
+
+    public Vector3Data leftHand;
+    public Vector3Data rightHand;
+    public Vector3Data leftShoulder;
+    public Vector3Data rightShoulder;
+    public Vector3Data hip;
+    public Vector3Data head;
+
+    public float fatigue;
+    public float engagement;
+    public float success;
+}
+
+[System.Serializable]
+public class Vector3Data
+{
+    public float x, y, z;
+
+    public Vector3Data(Vector3 v)
+    {
+        x = v.x;
+        y = v.y;
+        z = v.z;
+    }
+}
+
 public class PPOStateTracker : MonoBehaviour
 {
     public GameObject leftHand, rightHand, leftShoulder, rightShoulder, hip, head;
@@ -38,6 +69,7 @@ public class PPOStateTracker : MonoBehaviour
     public RewardCalculator rewardCalculator;
     public ResultDisplay resultDisplay;
     private string flaskUrl = "http://127.0.0.1:5000/ppo_action";
+    private string loggingUrl = "http://127.0.0.1:5000/store_session_data";
 
     // State tracking variables
     private int bubblesPopped2s = 0;
@@ -102,6 +134,8 @@ public class PPOStateTracker : MonoBehaviour
             int currentScore = ScoreManager.Instance != null ? ScoreManager.Instance.GetScore() : 0;
 
             Debug.Log("State Array: " + string.Join(",", stateArray));
+
+            StartCoroutine(SendSessionLog(stateArray));
 
             // Send State to Flask
             StateWrapper stateWrapper = new StateWrapper 
@@ -193,6 +227,42 @@ public class PPOStateTracker : MonoBehaviour
 
             yield return new WaitForSeconds(25f); // Check every 5 seconds
         }
+    }
+
+    IEnumerator SendSessionLog(List<int> stateArray)
+    {
+        SessionLogWrapper log = new SessionLogWrapper
+        {
+            time = Time.time - sessionStartTime,
+            state = stateArray,
+
+            leftHand = new Vector3Data(leftHand.transform.position),
+            rightHand = new Vector3Data(rightHand.transform.position),
+            leftShoulder = new Vector3Data(leftShoulder.transform.position),
+            rightShoulder = new Vector3Data(rightShoulder.transform.position),
+            hip = new Vector3Data(hip.transform.position),
+            head = new Vector3Data(head.transform.position),
+
+            fatigue = lastFatigue,
+            engagement = lastEngagement,
+            success = ScoreManager.Instance != null ? ScoreManager.Instance.GetScore() : 0
+        };
+
+        string json = JsonUtility.ToJson(log);
+
+        UnityWebRequest www = new UnityWebRequest(loggingUrl, "POST");
+        byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+
+        www.uploadHandler = new UploadHandlerRaw(bodyRaw);
+        www.downloadHandler = new DownloadHandlerBuffer();
+        www.SetRequestHeader("Content-Type", "application/json");
+
+        yield return www.SendWebRequest();
+
+        if (www.result != UnityWebRequest.Result.Success)
+            Debug.LogError("Logging Error: " + www.error);
+
+        www.Dispose();
     }
 
     private List<int> GetStateArray()
