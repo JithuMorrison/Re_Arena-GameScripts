@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -6,7 +7,6 @@ using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
 using TMPro;
 
-// Main verifier class
 public class UserCodeVerifier : MonoBehaviour
 {
     [Header("UI References")]
@@ -63,7 +63,7 @@ public class UserCodeVerifier : MonoBehaviour
 
                 try
                 {
-                    // Parse the response manually since Unity JsonUtility doesn't handle dictionaries
+                    // Parse the response
                     UserResponse response = ParseUserResponse(jsonResponse);
 
                     if (response == null || !response.success)
@@ -83,7 +83,7 @@ public class UserCodeVerifier : MonoBehaviour
                         }
                     }
 
-                    // Save session data
+                    // Save session data (SessionManager assumed present in your project)
                     SessionManager.Instance.SetResponse(response, "SESSION_" + Guid.NewGuid().ToString());
 
                     if (gamesList.Count > 0)
@@ -108,213 +108,101 @@ public class UserCodeVerifier : MonoBehaviour
 
     private UserResponse ParseUserResponse(string jsonResponse)
     {
-        // Use Unity's JsonUtility to parse the basic structure
-        var jsonObject = JsonUtility.FromJson<ApiResponse>(jsonResponse);
-        
-        if (jsonObject == null)
+        if (string.IsNullOrEmpty(jsonResponse)) return null;
+
+        // 1) Parse basic fields (success, user, games) using JsonUtility
+        ApiResponse api = null;
+        try
         {
-            Debug.LogError("Failed to parse JSON response");
-            return null;
+            api = JsonUtility.FromJson<ApiResponse>(jsonResponse);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("JsonUtility.FromJson failed for ApiResponse: " + ex.Message);
         }
 
+        // 2) Build the UserResponse
         UserResponse response = new UserResponse();
-        response.success = jsonObject.success;
-        response.user = jsonObject.user;
-        response.games = jsonObject.games;
+        response.success = api != null && api.success;
+        response.user = api != null ? api.user : null;
+        response.games = api != null ? api.games : null;
 
-        // Parse gameConfigs manually since Unity JsonUtility doesn't support Dictionary
+        // 3) Parse gameConfigs using MiniJSON (works with dynamic keys)
         response.gameConfigs = ParseGameConfigs(jsonResponse);
 
         return response;
     }
 
+    /// <summary>
+    /// Parses gameConfigs section into a Dictionary<string, GameConfig>
+    /// using MiniJSON to handle dynamic keys and nested objects.
+    /// </summary>
     private Dictionary<string, GameConfig> ParseGameConfigs(string jsonResponse)
     {
-        Dictionary<string, GameConfig> gameConfigs = new Dictionary<string, GameConfig>();
+        var result = new Dictionary<string, GameConfig>();
 
         try
         {
-            // Find the gameConfigs section in the JSON
-            int startIndex = jsonResponse.IndexOf("\"gameConfigs\":");
-            if (startIndex == -1) return gameConfigs;
-
-            startIndex = jsonResponse.IndexOf("{", startIndex);
-            int braceCount = 1;
-            int currentIndex = startIndex + 1;
-
-            // Find the matching closing brace
-            while (braceCount > 0 && currentIndex < jsonResponse.Length)
+            // Deserialize the full JSON into an object dictionary
+            var top = MiniJSON.Json.Deserialize(jsonResponse) as Dictionary<string, object>;
+            if (top == null)
             {
-                if (jsonResponse[currentIndex] == '{') braceCount++;
-                else if (jsonResponse[currentIndex] == '}') braceCount--;
-                currentIndex++;
+                Debug.LogWarning("Top-level JSON is not an object.");
+                return result;
             }
 
-            string gameConfigsJson = jsonResponse.Substring(startIndex, currentIndex - startIndex);
-            
-            // Parse each game config
-            ParseGameConfigsFromJson(gameConfigsJson, gameConfigs);
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("Error parsing gameConfigs: " + e.Message);
-        }
-
-        return gameConfigs;
-    }
-
-    private void ParseGameConfigsFromJson(string gameConfigsJson, Dictionary<string, GameConfig> gameConfigs)
-    {
-        // Remove outer braces
-        gameConfigsJson = gameConfigsJson.Trim().Substring(1, gameConfigsJson.Trim().Length - 2);
-
-        // Split by game entries (this is a simplified parser)
-        string[] parts = gameConfigsJson.Split(new string[] { "\",\"" }, StringSplitOptions.RemoveEmptyEntries);
-        
-        foreach (string part in parts)
-        {
-            try
+            if (!top.ContainsKey("gameConfigs"))
             {
-                // Extract game name and config
-                string cleanPart = part.Trim().Trim(',').Trim('"');
-                int colonIndex = cleanPart.IndexOf("\":");
-                
-                if (colonIndex > 0)
+                Debug.Log("No gameConfigs key found in response.");
+                return result;
+            }
+
+            var gameConfigsRaw = top["gameConfigs"] as Dictionary<string, object>;
+            if (gameConfigsRaw == null)
+            {
+                Debug.LogWarning("gameConfigs is not an object.");
+                return result;
+            }
+
+            foreach (var kv in gameConfigsRaw)
+            {
+                try
                 {
-                    string gameName = cleanPart.Substring(0, colonIndex).Trim('"');
-                    string configJson = cleanPart.Substring(colonIndex + 2).Trim();
-                    
-                    // Add missing braces if needed
-                    if (!configJson.StartsWith("{"))
+                    string gameKey = kv.Key;
+                    object rawValue = kv.Value;
+
+                    // Serialize the nested config object back to JSON string
+                    string configJson = MiniJSON.Json.Serialize(rawValue);
+
+                    // Use JsonUtility to create a typed GameConfig
+                    GameConfig config = JsonUtility.FromJson<GameConfig>(configJson);
+
+                    if (config == null)
                     {
-                        configJson = "{" + configJson;
-                    }
-                    if (!configJson.EndsWith("}"))
-                    {
-                        configJson = configJson + "}";
+                        Debug.LogWarning($"Failed to JsonUtility.FromJson for {gameKey}. Raw JSON: {configJson}");
+                        continue;
                     }
 
-                    GameConfig config = JsonUtility.FromJson<GameConfig>(configJson);
-                    if (config != null)
-                    {
-                        gameConfigs[gameName] = config;
-                        Debug.Log($"Parsed config for {gameName}: enabled={config.enabled}");
-                    }
+                    // For safety, set game_name if missing
+                    if (string.IsNullOrEmpty(config.game_name))
+                        config.game_name = gameKey;
+
+                    // For nested lights probabilities, JsonUtility should have parsed into the LightsGreenProb field
+                    result[gameKey] = config;
+
+                    Debug.Log($"Parsed gameConfig [{gameKey}] -> game_name={config.game_name}, enabled={config.enabled}");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"Error parsing gameConfigs entry '{kv.Key}': {e.Message}");
                 }
             }
-            catch (Exception e)
-            {
-                Debug.LogWarning("Failed to parse game config part: " + e.Message);
-            }
         }
-
-        // Fallback: manual parsing for known games
-        if (gameConfigs.Count == 0)
+        catch (Exception ex)
         {
-            ParseGameConfigsManually(gameConfigsJson, gameConfigs);
-        }
-    }
-
-    private void ParseGameConfigsManually(string json, Dictionary<string, GameConfig> gameConfigs)
-    {
-        if (string.IsNullOrEmpty(json)) return;
-
-        // Remove whitespace for easier parsing
-        string cleanJson = json.Replace("\n", "").Replace("\r", "").Replace(" ", "");
-
-        // Extract bubble_game block
-        string bubbleKey = "\"bubble_game\":{";
-        int bubbleStart = cleanJson.IndexOf(bubbleKey);
-        if (bubbleStart >= 0)
-        {
-            int bubbleEnd = cleanJson.IndexOf("}", bubbleStart) + 1;
-            string bubbleBlock = cleanJson.Substring(bubbleStart + bubbleKey.Length - 1, bubbleEnd - (bubbleStart + bubbleKey.Length - 1));
-
-            GameConfig bubbleConfig = new GameConfig();
-            bubbleConfig.game_name = "bubble_game";
-            bubbleConfig.enabled = bubbleBlock.Contains("\"enabled\":true") || bubbleBlock.Contains("\"enabled\":true");
-            bubbleConfig.difficulty = ExtractStringValue(bubbleBlock, "difficulty");
-            bubbleConfig.spawnAreaMax     = ExtractFloatValue(bubbleBlock, "spawn_area_max");
-            bubbleConfig.bubbleSpeedMax   = ExtractFloatValue(bubbleBlock, "bubble_speed_max");
-            bubbleConfig.bubbleLifetimeMax= ExtractFloatValue(bubbleBlock, "bubble_lifetime_max");
-            bubbleConfig.spawnHeightMax   = ExtractFloatValue(bubbleBlock, "spawn_height_max");
-            bubbleConfig.numBubblesMax    = ExtractIntValue(bubbleBlock, "num_bubbles_max");
-            bubbleConfig.bubbleSizeMax    = ExtractFloatValue(bubbleBlock, "bubble_size_max");
-            bubbleConfig.target_score = ExtractIntValue(bubbleBlock, "target_score");
-
-            bubbleConfig.guidanceEnabled  = bubbleBlock.Contains("\"guidance_enabled\":true");
-
-            gameConfigs["bubble_game"] = bubbleConfig;
-            Debug.Log($"Parsed bubble_game: {bubbleBlock}");
+            Debug.LogError("Exception in ParseGameConfigs: " + ex.Message);
         }
 
-        // Extract memory_match block
-        string memoryKey = "\"memory_match\":{";
-        int memoryStart = cleanJson.IndexOf(memoryKey);
-        if (memoryStart >= 0)
-        {
-            int memoryEnd = cleanJson.IndexOf("}", memoryStart) + 1;
-            string memoryBlock = cleanJson.Substring(memoryStart + memoryKey.Length - 1, memoryEnd - (memoryStart + memoryKey.Length - 1));
-
-            GameConfig memoryConfig = new GameConfig();
-            memoryConfig.game_name = "memory_match";
-            memoryConfig.enabled = memoryBlock.Contains("\"enabled\":true") || memoryBlock.Contains("\"enabled\": true");
-            memoryConfig.difficulty = ExtractStringValue(memoryBlock, "difficulty");
-            memoryConfig.grid_size = ExtractStringValue(memoryBlock, "grid_size");
-            memoryConfig.time_limit = ExtractIntValue(memoryBlock, "time_limit");
-
-            gameConfigs["memory_match"] = memoryConfig;
-            Debug.Log($"Parsed memory_match: {memoryBlock}");
-        }
-    }
-
-    private string ExtractStringValue(string json, string key)
-    {
-        string pattern = "\"" + key + "\":\"";
-        int startIndex = json.IndexOf(pattern);
-        if (startIndex == -1) return "";
-        
-        startIndex += pattern.Length;
-        int endIndex = json.IndexOf("\"", startIndex);
-        if (endIndex == -1) return "";
-        
-        return json.Substring(startIndex, endIndex - startIndex);
-    }
-
-    private float ExtractFloatValue(string json, string key)
-    {
-        string pattern = "\"" + key + "\":";
-        int startIndex = json.IndexOf(pattern);
-        if (startIndex == -1) return 0f;
-
-        startIndex += pattern.Length;
-        int endIndex = json.IndexOfAny(new char[] { ',', '}' }, startIndex);
-        if (endIndex == -1) endIndex = json.Length;
-
-        string valueStr = json.Substring(startIndex, endIndex - startIndex).Trim();
-        if (float.TryParse(valueStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float result))
-        {
-            return result;
-        }
-        return 0f;
-    }
-
-    private int ExtractIntValue(string json, string key)
-    {
-        string pattern = "\"" + key + "\":";
-        int startIndex = json.IndexOf(pattern);
-        if (startIndex == -1) return 0;
-        
-        startIndex += pattern.Length;
-        int endIndex = startIndex;
-        while (endIndex < json.Length && (char.IsDigit(json[endIndex]) || json[endIndex] == '-'))
-        {
-            endIndex++;
-        }
-        
-        string numberStr = json.Substring(startIndex, endIndex - startIndex);
-        int result;
-        int.TryParse(numberStr, out result);
         return result;
     }
 }
@@ -331,12 +219,48 @@ public class UserData1
 }
 
 [Serializable]
+public class LightsGreenProb
+{
+    public float lh;
+    public float ll;
+    public float rl;
+    public float rh;
+}
+
+[Serializable]
 public class GameConfig
 {
+    // Match the JSON keys returned by the server as closely as possible
     public string difficulty;
     public bool enabled;
     public string game_name;
+
+    // bubble_game fields (names exactly as in server JSON)
+    public float bubbleLifetime;
+    public float bubbleLifetime_max;
+    public float bubbleSize;
+    public float bubbleSize_max;
+    public float bubbleSpeedAction;
+    public float bubbleSpeed_max;
+    public float spawnAreaSize;
+    public float spawnAreaSize_max;
+    public float spawnHeight;
+    public float spawnHeight_max;
+    public int max_bubbles;
+    public int numBubbles;
+    public int numBubbles_max;
     public int target_score;
+
+    // lights_green_prob nested object
+    public LightsGreenProb lights_green_prob;
+
+    // get_set_repeat fields
+    public int action_time_delay;
+    public int num_actions;
+    public int similarity_max;
+    public int similarity_min;
+
+    // fallback / optional fields used in manual parsing previously
     public float spawnAreaMax;
     public float bubbleSpeedMax;
     public float bubbleLifetimeMax;
@@ -383,7 +307,7 @@ public class ApiResponse
     public bool success;
     public UserData1 user;
     public List<GameData> games;
-    // Note: gameConfigs is parsed manually due to Dictionary limitations
+    // gameConfigs intentionally omitted here because we parse it with MiniJSON
 }
 
 // Final usable response class
@@ -396,4 +320,376 @@ public class UserResponse
     public Dictionary<string, GameConfig> gameConfigs;
 }
 
+#endregion
+
+#region MINIJSON (Lightweight JSON serializer/deserializer)
+// The following MiniJSON implementation is public-domain / permissive and commonly used in Unity projects.
+// It supports Deserialize -> object (Dictionary<string,object>, List<object>, string, double, bool, null)
+// and Serialize to produce JSON string from objects composed of primitives, lists and dictionaries.
+//
+// I included a compact version here. If your project already has a JSON utility (SimpleJSON, Newtonsoft.Json, etc.),
+// you can remove this and use that instead.
+public static class MiniJSON
+{
+    public static object JsonDeserialize(string json)
+    {
+        return Json.Deserialize(json);
+    }
+
+    public static string JsonSerialize(object obj)
+    {
+        return Json.Serialize(obj);
+    }
+
+    // The actual implementation below is the classic "MiniJSON" found in many Unity repos.
+    // Note: I renamed entry points to Json.Deserialize / Json.Serialize for convenience.
+    public static class Json
+    {
+        public static object Deserialize(string json)
+        {
+            if (json == null) return null;
+            return Parser.Parse(json);
+        }
+
+        public static string Serialize(object obj)
+        {
+            return Serializer.Serialize(obj);
+        }
+
+        sealed class Parser
+        {
+            const string WORD_BREAK = "{}[],:\" \t\n\r";
+
+            enum TOKEN
+            {
+                NONE,
+                CURLY_OPEN,
+                CURLY_CLOSE,
+                SQUARED_OPEN,
+                SQUARED_CLOSE,
+                COLON,
+                COMMA,
+                STRING,
+                NUMBER,
+                TRUE,
+                FALSE,
+                NULL
+            };
+
+            StringReader json;
+
+            Parser(string jsonString)
+            {
+                json = new StringReader(jsonString);
+            }
+
+            public static object Parse(string jsonString)
+            {
+                var instance = new Parser(jsonString);
+                return instance.ParseValue();
+            }
+
+            void EatWhitespace()
+            {
+                while (char.IsWhiteSpace((char)json.Peek()))
+                    json.Read();
+            }
+
+            public object ParseValue()
+            {
+                EatWhitespace();
+                int c = json.Peek();
+                if (c == -1) return null;
+
+                char ch = (char)c;
+                switch (ch)
+                {
+                    case '{':
+                        return ParseObject();
+                    case '[':
+                        return ParseArray();
+                    case '"':
+                        return ParseString();
+                    case 't':
+                        json.Read(); json.Read(); json.Read(); json.Read();
+                        return true;
+                    case 'f':
+                        json.Read(); json.Read(); json.Read(); json.Read(); json.Read();
+                        return false;
+                    case 'n':
+                        json.Read(); json.Read(); json.Read(); json.Read();
+                        return null;
+                    default:
+                        return ParseNumber();
+                }
+            }
+
+            Dictionary<string, object> ParseObject()
+            {
+                Dictionary<string, object> table = new Dictionary<string, object>();
+                json.Read(); // {
+
+                while (true)
+                {
+                    EatWhitespace();
+                    if ((char)json.Peek() == '}')
+                    {
+                        json.Read();
+                        break;
+                    }
+
+                    string name = ParseString();
+                    EatWhitespace();
+
+                    // colon
+                    json.Read();
+                    EatWhitespace();
+
+                    object value = ParseValue();
+                    table[name] = value;
+
+                    EatWhitespace();
+                    int next = json.Peek();
+                    if (next == ',') { json.Read(); continue; }
+                    if (next == '}') { json.Read(); break; }
+                }
+                return table;
+            }
+
+            List<object> ParseArray()
+            {
+                List<object> array = new List<object>();
+                json.Read(); // [
+
+                while (true)
+                {
+                    EatWhitespace();
+                    if ((char)json.Peek() == ']') { json.Read(); break; }
+                    object value = ParseValue();
+                    array.Add(value);
+                    EatWhitespace();
+                    int next = json.Peek();
+                    if (next == ',') { json.Read(); continue; }
+                    if (next == ']') { json.Read(); break; }
+                }
+
+                return array;
+            }
+
+            string ParseString()
+            {
+                System.Text.StringBuilder s = new System.Text.StringBuilder();
+                json.Read(); // opening quote
+
+                while (true)
+                {
+                    int c = json.Read();
+                    if (c == -1) break;
+                    char ch = (char)c;
+                    if (ch == '"') break;
+                    if (ch == '\\')
+                    {
+                        int esc = json.Read();
+                        if (esc == -1) break;
+                        char ech = (char)esc;
+                        switch (ech)
+                        {
+                            case '"': s.Append('"'); break;
+                            case '\\': s.Append('\\'); break;
+                            case '/': s.Append('/'); break;
+                            case 'b': s.Append('\b'); break;
+                            case 'f': s.Append('\f'); break;
+                            case 'n': s.Append('\n'); break;
+                            case 'r': s.Append('\r'); break;
+                            case 't': s.Append('\t'); break;
+                            case 'u':
+                                {
+                                    char[] hex = new char[4];
+                                    json.Read(hex, 0, 4);
+                                    s.Append((char)Convert.ToInt32(new string(hex), 16));
+                                }
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        s.Append(ch);
+                    }
+                }
+
+                return s.ToString();
+            }
+
+            object ParseNumber()
+            {
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                while (true)
+                {
+                    int c = json.Peek();
+                    if (c == -1) break;
+                    char ch = (char)c;
+                    if ("0123456789+-.eE".IndexOf(ch) != -1)
+                    {
+                        sb.Append(ch);
+                        json.Read();
+                    }
+                    else
+                        break;
+                }
+
+                string num = sb.ToString();
+                if (num.IndexOf('.') != -1 || num.IndexOf('e') != -1 || num.IndexOf('E') != -1)
+                {
+                    if (double.TryParse(num, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double d))
+                        return d;
+                    return 0.0;
+                }
+                else
+                {
+                    if (long.TryParse(num, out long l))
+                        return l;
+                    return 0L;
+                }
+            }
+
+            sealed class StringReader : IDisposable
+            {
+                readonly string s;
+                int index;
+
+                public StringReader(string s)
+                {
+                    this.s = s;
+                    index = 0;
+                }
+
+                public int Peek()
+                {
+                    if (index >= s.Length) return -1;
+                    return s[index];
+                }
+
+                public int Read()
+                {
+                    if (index >= s.Length) return -1;
+                    return s[index++];
+                }
+
+                public int Read(char[] buffer, int offset, int count)
+                {
+                    int i = 0;
+                    while (i < count && index < s.Length)
+                    {
+                        buffer[offset + i] = s[index++];
+                        i++;
+                    }
+                    return i;
+                }
+
+                public void Dispose() { }
+            }
+        }
+
+        sealed class Serializer
+        {
+            StringBuilder builder;
+
+            Serializer()
+            {
+                builder = new StringBuilder();
+            }
+
+            public static string Serialize(object obj)
+            {
+                var instance = new Serializer();
+                instance.SerializeValue(obj);
+                return instance.builder.ToString();
+            }
+
+            void SerializeValue(object obj)
+            {
+                if (obj == null) { builder.Append("null"); return; }
+
+                if (obj is string) { SerializeString((string)obj); return; }
+                if (obj is bool) { builder.Append((bool)obj ? "true" : "false"); return; }
+                if (obj is long || obj is int || obj is short || obj is byte) { builder.Append(obj.ToString()); return; }
+                if (obj is double || obj is float || obj is decimal) { builder.Append(Convert.ToString(obj, System.Globalization.CultureInfo.InvariantCulture)); return; }
+
+                if (obj is Dictionary<string, object> dict) { SerializeObject(dict); return; }
+                if (obj is IDictionary idict)
+                {
+                    var d = new Dictionary<string, object>();
+                    foreach (DictionaryEntry e in idict) d[e.Key.ToString()] = e.Value;
+                    SerializeObject(d);
+                    return;
+                }
+                if (obj is IEnumerable<object> listObj) { SerializeArray(listObj); return; }
+                if (obj is IList ilist)
+                {
+                    var temp = new List<object>();
+                    foreach (var v in ilist) temp.Add(v);
+                    SerializeArray(temp);
+                    return;
+                }
+
+                // fallback: try to serialize as object using reflection on public fields/properties
+                SerializeString(obj.ToString());
+            }
+
+            void SerializeObject(Dictionary<string, object> dict)
+            {
+                builder.Append('{');
+                bool first = true;
+                foreach (var kv in dict)
+                {
+                    if (!first) builder.Append(',');
+                    SerializeString(kv.Key);
+                    builder.Append(':');
+                    SerializeValue(kv.Value);
+                    first = false;
+                }
+                builder.Append('}');
+            }
+
+            void SerializeArray(IEnumerable<object> array)
+            {
+                builder.Append('[');
+                bool first = true;
+                foreach (var obj in array)
+                {
+                    if (!first) builder.Append(',');
+                    SerializeValue(obj);
+                    first = false;
+                }
+                builder.Append(']');
+            }
+
+            void SerializeString(string str)
+            {
+                builder.Append('\"');
+                foreach (var c in str)
+                {
+                    switch (c)
+                    {
+                        case '\"': builder.Append("\\\""); break;
+                        case '\\': builder.Append("\\\\"); break;
+                        case '\b': builder.Append("\\b"); break;
+                        case '\f': builder.Append("\\f"); break;
+                        case '\n': builder.Append("\\n"); break;
+                        case '\r': builder.Append("\\r"); break;
+                        case '\t': builder.Append("\\t"); break;
+                        default:
+                            int codepoint = Convert.ToInt32(c);
+                            if ((codepoint >= 32 && codepoint <= 126))
+                                builder.Append(c);
+                            else
+                                builder.Append("\\u" + Convert.ToString(codepoint, 16).PadLeft(4, '0'));
+                            break;
+                    }
+                }
+                builder.Append('\"');
+            }
+        }
+    }
+}
 #endregion
