@@ -213,7 +213,7 @@ public class BubbleManager : MonoBehaviour
             bubbleSpeedMax   = Mathf.Max(gameconfig.bubbleSpeedMax, 1f);
             bubbleLifetimeMax = Mathf.Max(gameconfig.bubbleLifetimeMax, 10f); // at least 1 second
             numBubblesMax     = Mathf.Max(gameconfig.numBubblesMax, 5f);     // at least 1 bubble
-            bubbleSizeMax     = Mathf.Max(gameconfig.bubbleSizeMax, 0.2f);   // at least min size
+            bubbleSizeMax     = Mathf.Max(gameconfig.bubbleSizeMax, 0.4f);   // at least min size
         }
 
         // ✅ Define safe minimums
