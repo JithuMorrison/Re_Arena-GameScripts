@@ -97,6 +97,9 @@ public class DQNStateTracker : MonoBehaviour
     public LightController lightController;
     public LanternSpawner lanternSpawner;
     public ROGLScoreManager scoreManager;
+    public ResultDisplay resultDisplay;   
+
+    private bool gameEnded = false;
 
     [Header("DQN Settings")]
     public float updateInterval = 5f;  // Time between DQN queries (will be adjusted by DQN)
@@ -123,12 +126,38 @@ public class DQNStateTracker : MonoBehaviour
     private float lastEngagement;
     private int lastScore = 0;
 
+    private Coroutine dqnLoopCoroutine;
+
     void Start()
     {
+        // Validate all required components
+        bool hasErrors = false;
+        
+        if (leftHand == null) { Debug.LogError("DQNStateTracker: leftHand Transform not assigned!"); hasErrors = true; }
+        if (rightHand == null) { Debug.LogError("DQNStateTracker: rightHand Transform not assigned!"); hasErrors = true; }
+        if (leftLeg == null) { Debug.LogError("DQNStateTracker: leftLeg Transform not assigned!"); hasErrors = true; }
+        if (rightLeg == null) { Debug.LogError("DQNStateTracker: rightLeg Transform not assigned!"); hasErrors = true; }
+        if (lightController == null) { Debug.LogError("DQNStateTracker: LightController not assigned!"); hasErrors = true; }
+        if (lanternSpawner == null) { Debug.LogError("DQNStateTracker: LanternSpawner not assigned!"); hasErrors = true; }
+        if (scoreManager == null) { Debug.LogError("DQNStateTracker: ROGLScoreManager not assigned!"); hasErrors = true; }
+        
+        if (lightController != null && (lightController.lights == null || lightController.lights.Length < 4))
+        {
+            Debug.LogError("DQNStateTracker: LightController must have at least 4 lights configured!");
+            hasErrors = true;
+        }
+
+        if (hasErrors)
+        {
+            Debug.LogError("DQNStateTracker: Cannot start due to missing references. Please assign all required components in the Inspector.");
+            enabled = false;
+            return;
+        }
+
         sessionStartTime = Time.time;
         lastUpdateTime = Time.time;
         InitializeLimbTracking();
-        StartCoroutine(DQNUpdateLoop());
+        dqnLoopCoroutine = StartCoroutine(DQNUpdateLoop());
     }
 
     void InitializeLimbTracking()
@@ -167,7 +196,7 @@ public class DQNStateTracker : MonoBehaviour
 
     IEnumerator DQNUpdateLoop()
     {
-        while (true)
+        while (!gameEnded)
         {
             // Wait for the update interval (dynamically adjusted by DQN)
             yield return new WaitForSeconds(updateInterval);
@@ -300,6 +329,19 @@ public class DQNStateTracker : MonoBehaviour
 
     IEnumerator SendSessionLog(List<float> currentState)
     {
+        // Check for null references before creating log
+        if (lightController == null || lightController.lights == null || lightController.lights.Length < 4)
+        {
+            Debug.LogError("Cannot send session log: LightController or lights not properly set up");
+            yield break;
+        }
+
+        if (leftHand == null || rightHand == null || leftLeg == null || rightLeg == null)
+        {
+            Debug.LogError("Cannot send session log: Body part transforms not assigned");
+            yield break;
+        }
+
         ROGLSessionLogWrapper log = new ROGLSessionLogWrapper
         {
             time = Time.time - sessionStartTime,
@@ -344,23 +386,43 @@ public class DQNStateTracker : MonoBehaviour
         
         List<float> state = new List<float>();
 
-        // Limb activity (0 or 1)
-        state.Add(limbActivity[leftHand] ? 1f : 0f);
-        state.Add(limbActivity[leftLeg] ? 1f : 0f);
-        state.Add(limbActivity[rightLeg] ? 1f : 0f);
-        state.Add(limbActivity[rightHand] ? 1f : 0f);
+        // Limb activity (0 or 1) - with null checks
+        state.Add(limbActivity.ContainsKey(leftHand) && limbActivity[leftHand] ? 1f : 0f);
+        state.Add(limbActivity.ContainsKey(leftLeg) && limbActivity[leftLeg] ? 1f : 0f);
+        state.Add(limbActivity.ContainsKey(rightLeg) && limbActivity[rightLeg] ? 1f : 0f);
+        state.Add(limbActivity.ContainsKey(rightHand) && limbActivity[rightHand] ? 1f : 0f);
 
         // Light states (0=Red, 1=Orange, 2=Green)
-        for (int i = 0; i < 4; i++)
+        if (lightController != null && lightController.lights != null && lightController.lights.Length >= 4)
         {
-            state.Add((float)lightController.lights[i].state);
+            for (int i = 0; i < 4; i++)
+            {
+                state.Add((float)lightController.lights[i].state);
+            }
+        }
+        else
+        {
+            Debug.LogError("LightController or lights array is null/invalid!");
+            // Add default values
+            for (int i = 0; i < 4; i++)
+            {
+                state.Add(0f);
+            }
         }
 
         // Active lanterns normalized (0-1 range, max 5)
         state.Add(Mathf.Clamp01(LanternThrow.activeLanterns / 5f));
 
         // Score normalized (-1 to 1, assuming score range -20 to 20)
-        int currentScore = scoreManager != null ? scoreManager.GetScore() : 0;
+        int currentScore = 0;
+        if (scoreManager != null)
+        {
+            currentScore = scoreManager.GetScore();
+        }
+        else
+        {
+            Debug.LogWarning("ScoreManager is null!");
+        }
         state.Add(Mathf.Clamp(currentScore / 20f, -1f, 1f));
 
         return state;
@@ -368,13 +430,28 @@ public class DQNStateTracker : MonoBehaviour
 
     void ApplyAdjustments(DQNAdjustments adjustments)
     {
-        // Apply light state changes
-        for (int i = 0; i < 4; i++)
+        if (lightController == null)
         {
-            if (adjustments.light_states[i] != -1)
+            Debug.LogError("Cannot apply adjustments: LightController is null");
+            return;
+        }
+
+        if (lightController.lights == null || lightController.lights.Length < 4)
+        {
+            Debug.LogError("Cannot apply adjustments: lights array is invalid");
+            return;
+        }
+
+        // Apply light state changes
+        if (adjustments.light_states != null && adjustments.light_states.Count >= 4)
+        {
+            for (int i = 0; i < 4; i++)
             {
-                lightController.lights[i].state = (LightController.LightState)adjustments.light_states[i];
-                lightController.UpdateColor(lightController.lights[i]);
+                if (adjustments.light_states[i] != -1)
+                {
+                    lightController.lights[i].state = (LightController.LightState)adjustments.light_states[i];
+                    lightController.UpdateColor(lightController.lights[i]);
+                }
             }
         }
 
@@ -390,7 +467,7 @@ public class DQNStateTracker : MonoBehaviour
         }
 
         // Adjust spawn rate
-        if (Mathf.Abs(adjustments.spawn_rate_change) > 0.01f)
+        if (lanternSpawner != null && Mathf.Abs(adjustments.spawn_rate_change) > 0.01f)
         {
             lanternSpawner.spawnRate = Mathf.Clamp(lanternSpawner.spawnRate + adjustments.spawn_rate_change, 0.5f, 5f);
             Debug.Log($"Spawn rate adjusted: {lanternSpawner.spawnRate:F2}");
@@ -401,14 +478,21 @@ public class DQNStateTracker : MonoBehaviour
     {
         float reward = 0f;
 
-        // Reward for score change
+        // Reward for score change (primary signal)
+        // Now that scoring is fixed: Green hits = positive, Red hits = negative
         int scoreDelta = currentScore - lastScore;
-        reward += scoreDelta * 2f;
+        reward += scoreDelta * 2f;  // Strong signal for score changes
 
         // Penalty for too many active lanterns (overwhelmed)
         if (LanternThrow.activeLanterns > 3)
         {
             reward -= (LanternThrow.activeLanterns - 3) * 0.5f;
+        }
+
+        // Bonus for keeping some lanterns active (engagement)
+        if (LanternThrow.activeLanterns >= 1 && LanternThrow.activeLanterns <= 3)
+        {
+            reward += 0.5f;  // Sweet spot for engagement
         }
 
         // Reward for balanced limb usage
@@ -419,7 +503,7 @@ public class DQNStateTracker : MonoBehaviour
         }
         if (activeLimbCount >= 2 && activeLimbCount <= 3)
         {
-            reward += 1f;  // Sweet spot
+            reward += 1f;  // Encourage using multiple limbs
         }
 
         // Penalty for fatigue
@@ -428,28 +512,44 @@ public class DQNStateTracker : MonoBehaviour
         // Bonus for engagement
         reward += lastEngagement * 1f;
 
-        // Time penalty (encourage faster completion)
+        // Small time penalty (encourage efficiency but not rushing)
         float elapsedTime = Time.time - sessionStartTime;
-        reward -= elapsedTime * 0.01f;
+        reward -= elapsedTime * 0.005f;  // Reduced from 0.01f
 
         return reward;
     }
 
     bool IsEpisodeDone(int currentScore)
     {
+        if (gameEnded) return true;
         float elapsedTime = Time.time - sessionStartTime;
-        
+
         // Win condition
         if (currentScore >= 20)
+        {
+            gameEnded = true;
+            if (resultDisplay)
+                resultDisplay.ShowResult("win");
             return true;
-        
-        // Lose conditions
-        if (currentScore <= -10)
-            return true;
-        
-        // Time limit (2 minutes)
+        }
+
+        // Lose condition - time limit
         if (elapsedTime >= 120f)
+        {
+            gameEnded = true;
+            if (resultDisplay)
+                resultDisplay.ShowResult("lose");
             return true;
+        }
+
+        // Lose condition - negative score
+        if (currentScore <= -10)
+        {
+            gameEnded = true;
+            if (resultDisplay)
+                resultDisplay.ShowResult("lose");
+            return true;
+        }
 
         return false;
     }
@@ -473,5 +573,17 @@ public class DQNStateTracker : MonoBehaviour
         }
         float limbEngagement = Mathf.Clamp01(activeLimbs / 4f);
         lastEngagement = Mathf.Clamp01(scoreProgress * 0.5f + limbEngagement * 0.3f + (1f - lastFatigue) * 0.2f);
+    }
+
+    // Validation method to check if all required components are assigned
+    void OnValidate()
+    {
+        if (leftHand == null) Debug.LogWarning("DQNStateTracker: leftHand Transform not assigned!");
+        if (rightHand == null) Debug.LogWarning("DQNStateTracker: rightHand Transform not assigned!");
+        if (leftLeg == null) Debug.LogWarning("DQNStateTracker: leftLeg Transform not assigned!");
+        if (rightLeg == null) Debug.LogWarning("DQNStateTracker: rightLeg Transform not assigned!");
+        if (lightController == null) Debug.LogWarning("DQNStateTracker: LightController not assigned!");
+        if (lanternSpawner == null) Debug.LogWarning("DQNStateTracker: LanternSpawner not assigned!");
+        if (scoreManager == null) Debug.LogWarning("DQNStateTracker: ROGLScoreManager not assigned!");
     }
 }
