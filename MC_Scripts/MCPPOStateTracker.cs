@@ -127,6 +127,9 @@ public class MCPPOStateTracker : MonoBehaviour
     private int successfulAttempts = 0;
     private int lastScore = 0;
 
+    private Coroutine ppoLoopCoroutine;
+    private bool episodeEnded = false;
+
     void Start()
     {
         // Validate components
@@ -154,7 +157,7 @@ public class MCPPOStateTracker : MonoBehaviour
         }
 
         sessionStartTime = Time.time;
-        StartCoroutine(PPOUpdateLoop());
+        ppoLoopCoroutine = StartCoroutine(PPOUpdateLoop());
     }
 
     void Update()
@@ -238,7 +241,7 @@ public class MCPPOStateTracker : MonoBehaviour
 
     IEnumerator PPOUpdateLoop()
     {
-        while (true)
+        while (!episodeEnded)
         {
             yield return new WaitForSeconds(updateInterval);
 
@@ -531,28 +534,28 @@ public class MCPPOStateTracker : MonoBehaviour
         return reward;
     }
 
-   bool IsEpisodeDone()
+    bool IsEpisodeDone()
     {
+        if (episodeEnded) return true;
         float elapsedTime = Time.time - sessionStartTime;
 
         // Win condition
-        if (score >= 30)
+        if (score >= 20)
         {
+            episodeEnded = true;
             if (resultDisplay)
                 resultDisplay.ShowResult("win");
-            StopAllCoroutines(); // Stop PPO loop
             return true;
         }
 
-        // Lose condition - time limit (3 minutes)
-        if (elapsedTime >= 180f)
+        // Lose condition
+        if (elapsedTime >= 120f)
         {
+            episodeEnded = true;
             if (resultDisplay)
                 resultDisplay.ShowResult("lose");
-            StopAllCoroutines(); // Stop PPO loop
             return true;
         }
-
         return false;
     }
 
