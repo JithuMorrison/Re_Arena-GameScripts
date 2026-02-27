@@ -75,6 +75,7 @@ public class MCPPOStateTracker : MonoBehaviour
     public MoveSimilarity moveSimilarity;
     public RandomAnimationPlayer animationPlayer;
     public TMP_Text scoreText;
+    public ResultDisplay resultDisplay;
 
     [Header("PPO Settings")]
     public float updateInterval = 5f;
@@ -221,6 +222,7 @@ public class MCPPOStateTracker : MonoBehaviour
         {
             scoreText.text = $"Score: {score}";
         }
+        IsEpisodeDone();
     }
 
     void UpdateSimilarityHistory()
@@ -529,17 +531,27 @@ public class MCPPOStateTracker : MonoBehaviour
         return reward;
     }
 
-    bool IsEpisodeDone()
+   bool IsEpisodeDone()
     {
         float elapsedTime = Time.time - sessionStartTime;
-        
+
         // Win condition
         if (score >= 30)
+        {
+            if (resultDisplay)
+                resultDisplay.ShowResult("win");
+            StopAllCoroutines(); // Stop PPO loop
             return true;
-        
-        // Time limit (3 minutes)
+        }
+
+        // Lose condition - time limit (3 minutes)
         if (elapsedTime >= 180f)
+        {
+            if (resultDisplay)
+                resultDisplay.ShowResult("lose");
+            StopAllCoroutines(); // Stop PPO loop
             return true;
+        }
 
         return false;
     }
